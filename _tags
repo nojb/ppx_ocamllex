@@ -1,0 +1,1 @@
+<syntax/ppx_ocamllex.*>: package(ppx_tools.metaquot)
