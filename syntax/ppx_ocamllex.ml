@@ -11,56 +11,6 @@ open Ast_convenience
 open Syntax
 open Lexgen
 
-let utf8_mode = ref false
-
-let utf8_set cs =
-  let rg a b = Characters [a, b] in
-  let aux (a, b) =
-    let a = min a b and b = max a b in
-    let lo x i = 0x80 lor ((x lsr (6 * i)) land 0x3f) in
-    let r = ref [] in
-    if a <= 0x7f then begin
-      let b = min b 0x7f in
-      r := [rg a b]
-    end;
-    if a <= 0x7ff then begin
-      let b = min b 0x7ff in
-      let hi x = 0xc0 lor ((x lsr 6) land 0x1f) in
-      let a0 = lo a 0 and a1 = hi a in
-      let b0 = lo b 0 and b1 = hi b in
-      r := Sequence (rg a1 b1, rg a0 b0) :: !r
-    end;
-    if a <= 0xffff then begin
-      let b = min b 0xffff in
-      let hi x = 0xe0 lor ((x lsr 12) land 0xf) in
-      let a0 = lo a 0 and a1 = lo a 1 and a2 = hi a in
-      let b0 = lo b 0 and b1 = lo b 1 and b2 = hi b in
-      r := Sequence (rg a2 b2, Sequence (rg a1 b1, rg a0 b0)) :: !r
-    end;
-    if a <= 0x1fffff then begin
-      let b = min b 0x1fffff in
-      let hi x = 0xf0 lor ((x lsr 16) land 0x7) in
-      let a0 = lo a 0 and a1 = lo a 1 and a2 = lo a 2 and a3 = hi a in
-      let b0 = lo b 0 and b1 = lo b 1 and b2 = lo b 2 and b3 = hi b in
-      r := Sequence (rg a3 b3, Sequence (rg a2 b2, Sequence (rg a1 b1, rg a0 b0))) :: !r
-    end;
-    !r
-  in
-  let rec alt = function
-    | [] -> Eof | [r] -> r
-    | r :: rl -> Alternative (r, alt rl)
-  in
-  alt (List.concat (List.map aux cs))
-
-let rec remove_utf8 = function
-  | Epsilon -> Epsilon
-  | Characters cs -> utf8_set cs
-  | Eof -> Eof
-  | Sequence (r1, r2) -> Sequence (remove_utf8 r1, remove_utf8 r2)
-  | Alternative (r1, r2) -> Alternative (remove_utf8 r1, remove_utf8 r2)
-  | Repetition r -> Repetition (remove_utf8 r)
-  | Bind (r, x) -> Bind (remove_utf8 r, x)
-
 (* Helpers to build AST *)
 
 let appfun s l = app (evar s) l
@@ -76,71 +26,6 @@ module StringMap = Map.Make(struct
   type t = string
   let compare = compare
 end)
-
-let builtin_regexps =
-  List.fold_left (fun acc (n, c) -> StringMap.add n (Characters c) acc)
-    StringMap.empty
-    [
-     (* "any", Cset.any; *)
-     (* "eof", Cset.eof; *)
-     (* "xml_letter", Cset.letter; *)
-     (* "xml_digit", Cset.digit; *)
-     (* "xml_extender", Cset.extender; *)
-     (* "xml_base_char", Cset.base_char; *)
-     (* "xml_ideographic", Cset.ideographic; *)
-     (* "xml_combining_char", Cset.combining_char; *)
-     (* "xml_blank", Cset.blank; *)
-     (* "tr8876_ident_char", Cset.tr8876_ident_char; *)
-
-     (* Unicode 6.3 categories *)
-     "cc", Unicode63.Categories.cc;
-     "cf", Unicode63.Categories.cf;
-     "cn", Unicode63.Categories.cn;
-     "co", Unicode63.Categories.co;
-     "cs", Unicode63.Categories.cs;
-     "ll", Unicode63.Categories.ll;
-     "lm", Unicode63.Categories.lm;
-     "lo", Unicode63.Categories.lo;
-     "lt", Unicode63.Categories.lt;
-     "lu", Unicode63.Categories.lu;
-     "mc", Unicode63.Categories.mc;
-     "me", Unicode63.Categories.me;
-     "mn", Unicode63.Categories.mn;
-     "nd", Unicode63.Categories.nd;
-     "nl", Unicode63.Categories.nl;
-     "no", Unicode63.Categories.no;
-     "pc", Unicode63.Categories.pc;
-     "pd", Unicode63.Categories.pd;
-     "pe", Unicode63.Categories.pe;
-     "pf", Unicode63.Categories.pf;
-     "pi", Unicode63.Categories.pi;
-     "po", Unicode63.Categories.po;
-     "ps", Unicode63.Categories.ps;
-     "sc", Unicode63.Categories.sc;
-     "sk", Unicode63.Categories.sk;
-     "sm", Unicode63.Categories.sm;
-     "so", Unicode63.Categories.so;
-     "zl", Unicode63.Categories.zl;
-     "zp", Unicode63.Categories.zp;
-     "zs", Unicode63.Categories.zs;
-
-     (* Unicode 6.3 properties *)
-     "alphabetic", Unicode63.Properties.alphabetic;
-     "ascii_hex_digit", Unicode63.Properties.ascii_hex_digit;
-     "hex_digit", Unicode63.Properties.hex_digit;
-     "id_continue", Unicode63.Properties.id_continue;
-     "id_start", Unicode63.Properties.id_start;
-     "lowercase", Unicode63.Properties.lowercase;
-     "math", Unicode63.Properties.math;
-     "other_alphabetic", Unicode63.Properties.other_alphabetic;
-     "other_lowercase", Unicode63.Properties.other_lowercase;
-     "other_math", Unicode63.Properties.other_math;
-     "other_uppercase", Unicode63.Properties.other_uppercase;
-     "uppercase", Unicode63.Properties.uppercase;
-     "white_space", Unicode63.Properties.white_space;
-     "xid_continue", Unicode63.Properties.xid_continue;
-     "xid_start", Unicode63.Properties.xid_start;
-    ]
 
 let array_set a i e =
   app (evar "Array.set") [a; i; e]
@@ -302,7 +187,7 @@ let gen_definition lexbuf e transitions (* error *) =
 (* Lexer specification parser *)
 
 let codepoint i =
-  if i < 0 || (i > 0x10FFFF && !utf8_mode) || (i > 255 && not !utf8_mode) then
+  if i < 0 || i > 255 then
     failwith (Printf.sprintf "Invalid character code: %i" i);
   i
 
@@ -340,7 +225,7 @@ let regexp_of_pattern env =
         Alternative (Epsilon, aux p)
     | Ppat_construct ({txt = Lident "Eof"}, None) ->
         Eof
-    | Ppat_any -> Characters [0, if !utf8_mode then 0x10FFFF else 255]
+    | Ppat_any -> Characters [0, 255]
     | Ppat_construct ({txt = Lident "Diff"}, Some {ppat_desc = Ppat_tuple [p1; p2]}) ->
         begin match as_cset (aux p1), as_cset (aux p2) with
           | Some s1, Some s2 ->
@@ -355,7 +240,7 @@ let regexp_of_pattern env =
     | Ppat_construct ({txt = Lident "Compl"}, Some p0) ->
         begin match as_cset (aux p0) with
           | Some s0 ->
-              Characters (Cset.diff [0, if !utf8_mode then 0x10FFFF else 255] s0)
+              Characters (Cset.diff [0, 255] s0)
           | None ->
               err p0.ppat_loc
                 "the Compl operator can only be applied to a single-characer regexp"
@@ -392,7 +277,7 @@ let mapper =
   object(this)
     inherit Ast_mapper_class.mapper as super
 
-    val env = builtin_regexps
+    val env = StringMap.empty
 
     method define_regexp name p =
       {< env = StringMap.add name (regexp_of_pattern env p) env >}
@@ -414,7 +299,6 @@ let mapper =
                     err e.pexp_loc "'when' guards are not supported"
                 ) cases
             in
-            let cases = if !utf8_mode then List.map (fun (r, e) -> (remove_utf8 r, e)) cases else cases in
             let lexdef = { name="dummyname"; args = (); shortest = false; clauses = cases } in
             let entry_points, transitions = make_dfa lexdef in
             gen_definition lexbuf entry_points transitions
@@ -460,5 +344,4 @@ let mapper =
  end
 
 let () =
-  (* Utf8.utf8_mode := true; *)
   Ast_mapper.register "ocamllex" (fun _ -> Ast_mapper_class.to_mapper mapper)
