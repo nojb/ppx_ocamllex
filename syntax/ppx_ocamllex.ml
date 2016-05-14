@@ -14,7 +14,7 @@ open Lexgen
 (* Helpers to build AST *)
 
 let appfun s l = app (evar s) l
-let pint i = Pat.constant (Const_int i)
+let pint i = Pat.constant (Pconst_integer (string_of_int i, None))
 let glb_value name def = Str.value Nonrecursive [Vb.mk (pvar name) def]
 let sequence = function
   | [] -> unit ()
@@ -23,9 +23,9 @@ let sequence = function
 (* Named regexps *)
 
 module StringMap = Map.Make(struct
-  type t = string
-  let compare = compare
-end)
+    type t = string
+    let compare = compare
+  end)
 
 let array_set a i e =
   app (evar "Array.set") [a; i; e]
@@ -76,12 +76,12 @@ let gen_moves lexbuf moves =
   and size = ref 0 in
   Hashtbl.iter
     (fun m (mems, pats) ->
-      let size_m = List.length pats in
-      if size_m > !size then begin
-        most_frequent := m ;
-        most_mems := mems ;
-        size := size_m
-      end)
+       let size_m = List.length pats in
+       if size_m > !size then begin
+         most_frequent := m ;
+         most_mems := mems ;
+         size := size_m
+       end)
     t;
   Printf.eprintf "NOTE: Hashtbl.length = %d\n%!" (Hashtbl.length t);
   Hashtbl.fold
@@ -109,12 +109,12 @@ let gen_trans lexbuf i trans =
             (gen_moves lexbuf moves)
         in
         begin match trans with
-        | Remember (n, mvs) ->
-            sequence (gen_tag_actions lexbuf mvs @
-                      [Exp.setfield (evar lexbuf) (lid "Lexing.lex_last_pos") (Exp.field (evar lexbuf) (lid "Lexing.lex_curr_pos"));
-                       Exp.setfield (evar lexbuf) (lid "Lexing.lex_last_action") (int n);
-                       m])
-        | No_remember -> m
+          | Remember (n, mvs) ->
+              sequence (gen_tag_actions lexbuf mvs @
+                        [Exp.setfield (evar lexbuf) (lid "Lexing.lex_last_pos") (Exp.field (evar lexbuf) (lid "Lexing.lex_curr_pos"));
+                         Exp.setfield (evar lexbuf) (lid "Lexing.lex_last_action") (int n);
+                         m])
+          | No_remember -> m
         end
   in
   Vb.mk (pvar entry) (lam (pvar lexbuf) body)
@@ -142,21 +142,21 @@ let gen_env lexbuf env act =
       let env =
         List.sort
           (fun ((_,p1),_) ((_,p2),_) ->
-            Pervasives.compare p1.start_pos  p2.start_pos)
+             Pervasives.compare p1.start_pos  p2.start_pos)
           env in
 
       let_in ~recursive:false
         (List.map (fun ((x, pos), v) ->
              Vb.mk (pvar x)
                begin match v with
-               | Ident_string (true, nstart, nend) ->
-                   app (evar "Lexing.sub_lexeme_opt") [evar lexbuf; gen_tag_access lexbuf nstart; gen_tag_access lexbuf nend]
-               | Ident_string (false, nstart, nend) ->
-                   app (evar "Lexing.sub_lexeme") [evar lexbuf; gen_tag_access lexbuf nstart; gen_tag_access lexbuf nend]
-               | Ident_char (true, nstart) ->
-                   app (evar "Lexing.sub_lexeme_char_opt") [evar lexbuf; gen_tag_access lexbuf nstart]
-               | Ident_char (false, nstart) ->
-                   app (evar "Lexing.sub_lexeme_char") [evar lexbuf; gen_tag_access lexbuf nstart]
+                 | Ident_string (true, nstart, nend) ->
+                     app (evar "Lexing.sub_lexeme_opt") [evar lexbuf; gen_tag_access lexbuf nstart; gen_tag_access lexbuf nend]
+                 | Ident_string (false, nstart, nend) ->
+                     app (evar "Lexing.sub_lexeme") [evar lexbuf; gen_tag_access lexbuf nstart; gen_tag_access lexbuf nend]
+                 | Ident_char (true, nstart) ->
+                     app (evar "Lexing.sub_lexeme_char_opt") [evar lexbuf; gen_tag_access lexbuf nstart]
+                 | Ident_char (false, nstart) ->
+                     app (evar "Lexing.sub_lexeme_char") [evar lexbuf; gen_tag_access lexbuf nstart]
                end) env)
         act
 
@@ -245,30 +245,30 @@ let regexp_of_pattern env =
               err p0.ppat_loc
                 "the Compl operator can only be applied to a single-characer regexp"
         end
-    | Ppat_construct ({txt = Lident "Chars"}, Some {ppat_desc=Ppat_constant (Const_string (s, _))}) ->
+    | Ppat_construct ({txt = Lident "Chars"}, Some {ppat_desc=Ppat_constant (Pconst_string (s, _))}) ->
         let c = ref Cset.empty in
         for i = 0 to String.length s - 1 do
           c := Cset.union !c (Cset.singleton (Char.code s.[i]))
         done;
         Characters !c
-    | Ppat_interval (Const_char c1, Const_char c2) ->
+    | Ppat_interval (Pconst_char c1, Pconst_char c2) ->
         Characters [Char.code c1, Char.code c2]
-    | Ppat_interval (Const_int i1, Const_int i2) ->
-        Characters [codepoint i1, codepoint i2]
+    | Ppat_interval (Pconst_integer (i1, None), Pconst_integer (i2, None)) ->
+        Characters [codepoint (int_of_string i1), codepoint (int_of_string i2)]
 
-    | Ppat_constant (Const_string (s, _)) -> regexp_for_string s
-    | Ppat_constant (Const_char c) -> regexp_for_char c
-    | Ppat_constant (Const_int c) -> Characters (Cset.singleton (codepoint c))
+    | Ppat_constant (Pconst_string (s, _)) -> regexp_for_string s
+    | Ppat_constant (Pconst_char c) -> regexp_for_char c
+    | Ppat_constant (Pconst_integer (c, None)) -> Characters (Cset.singleton (codepoint (int_of_string c)))
     | Ppat_var {txt=x} ->
         begin try StringMap.find x env
-        with Not_found ->
-          err p.ppat_loc (Printf.sprintf "unbound regexp %s" x)
+          with Not_found ->
+            err p.ppat_loc (Printf.sprintf "unbound regexp %s" x)
         end
     | Ppat_alias (p, v) ->
         let loc = { loc_file = ""; start_pos = 0; end_pos = 0; start_line = 0; start_col = 0 } in
         Bind (aux p, (v.txt, loc))
     | _ ->
-      err p.ppat_loc "this pattern is not a valid regexp"
+        err p.ppat_loc "this pattern is not a valid regexp"
   in
   aux
 
@@ -285,27 +285,27 @@ let mapper =
     method! expr e =
       match e with
       | [%expr [%ocamllex [%e? {pexp_desc=Pexp_match (lexbuf, cases)}]]] ->
-            let lexbuf =
-              match lexbuf with
-              | {pexp_desc=Pexp_ident{txt=Lident lexbuf}} -> lexbuf
-              | _ ->
+          let lexbuf =
+            match lexbuf with
+            | {pexp_desc=Pexp_ident{txt=Lident lexbuf}} -> lexbuf
+            | _ ->
                 err lexbuf.pexp_loc "the matched expression must be a single identifier"
-            in
-            let cases =
-              List.map
-                (function
-                  | {pc_lhs = p; pc_rhs = e; pc_guard = None} -> regexp_of_pattern env p, super # expr e
-                  | {pc_guard = Some e} ->
+          in
+          let cases =
+            List.map
+              (function
+                | {pc_lhs = p; pc_rhs = e; pc_guard = None} -> regexp_of_pattern env p, super # expr e
+                | {pc_guard = Some e} ->
                     err e.pexp_loc "'when' guards are not supported"
-                ) cases
-            in
-            let lexdef = { name="dummyname"; args = (); shortest = false; clauses = cases } in
-            let entry_points, transitions = make_dfa lexdef in
-            gen_definition lexbuf entry_points transitions
+              ) cases
+          in
+          let lexdef = { name="dummyname"; args = (); shortest = false; clauses = cases } in
+          let entry_points, transitions = make_dfa lexdef in
+          gen_definition lexbuf entry_points transitions
       | [%expr let [%p? {ppat_desc=Ppat_var{txt=name}}] = [%sedlex.regexp? [%p? p]] in [%e? body]] ->
           (this # define_regexp name p) # expr body
       | [%expr [%sedlex [%e? _]]] ->
-        err e.pexp_loc "the %ocamllex extension is only recognized on match expressions"
+          err e.pexp_loc "the %ocamllex extension is only recognized on match expressions"
       | _ -> super # expr e
 
 
@@ -315,15 +315,15 @@ let mapper =
       let mapper = ref this in
       let regexps = ref [] in
       let l = List.concat
-        (List.map
-           (function
-             | [%stri let [%p? {ppat_desc=Ppat_var{txt=name}}] = [%ocamllex.regexp? [%p? p]]] as i ->
-               regexps := i :: !regexps;
-               mapper := !mapper # define_regexp name p;
-               []
-             | i ->
-               [ !mapper # structure_item i ]
-         ) l) in
+          (List.map
+             (function
+               | [%stri let [%p? {ppat_desc=Ppat_var{txt=name}}] = [%ocamllex.regexp? [%p? p]]] as i ->
+                   regexps := i :: !regexps;
+                   mapper := !mapper # define_regexp name p;
+                   []
+               | i ->
+                   [ !mapper # structure_item i ]
+             ) l) in
       (l, List.rev !regexps)
 
     method! structure l =
@@ -341,7 +341,7 @@ let mapper =
       else
         fst (this # structure_with_regexps l)
 
- end
+  end
 
 let () =
   Ast_mapper.register "ocamllex" (fun _ -> Ast_mapper_class.to_mapper mapper)
