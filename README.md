@@ -19,20 +19,20 @@ $ make # produces ocamllex.native
 
 ```ocaml
 $ ocamlfind ppx_tools/rewriter ./ppx_ocamllex.native <<EOF > foo.ml
-let rec f lexbuf = (* recognizes the regexp {|a*b|} *)
+let f lexbuf = (* recognizes the regexp {|a+.*|} *)
   match%ocamllex lexbuf with
-  | 'a' -> f lexbuf
-  | 'b' -> ()
+  | Plus 'a', (Star _ as rest) -> rest
   | _ -> failwith "lex"
 
 let () =
-  f (Lexing.from_string (read_line ()))
+  print_endline (f (Lexing.from_string (read_line ())))
 EOF
 $ ocamlc -I lib lib/lexing_plus.mli lib/lexing_plus.ml foo.ml
 $ ./a.out
-aaab
+aaabcd
+bcd
 $ ./a.out
-aaac
+c
 Fatal error: exception Failure("lex")
 ```
 
