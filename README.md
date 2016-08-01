@@ -19,7 +19,7 @@ $ make # produces ocamllex.native
 
 ```ocaml
 $ ocamlfind ppx_tools/rewriter ./ppx_ocamllex.native <<EOF > foo.ml
-let f lexbuf = (* recognizes the regexp {|a*b|} *)
+let rec f lexbuf = (* recognizes the regexp {|a*b|} *)
   match%ocamllex lexbuf with
   | 'a' -> f lexbuf
   | 'b' -> ()
