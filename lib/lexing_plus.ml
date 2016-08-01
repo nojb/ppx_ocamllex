@@ -5,7 +5,7 @@ let init_lexbuf lexbuf mem_size =
   lexbuf.Lexing.lex_last_pos <- pos;
   lexbuf.Lexing.lex_last_action <- -1
 
-let next_char lexbuf =
+let rec next_char lexbuf =
   if lexbuf.Lexing.lex_curr_pos >= lexbuf.Lexing.lex_buffer_len then begin
     if lexbuf.Lexing.lex_eof_reached then
       256
